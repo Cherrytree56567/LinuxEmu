@@ -4,6 +4,12 @@
         <meta charset="utf-8">
         <script src="wasm_exec.js"></script>
         <script>
+
+            var Debug = false;
+
+            function DebuggingEnabled() {
+                return Debug;
+            }
              
             if (WebAssembly) {
                  // WebAssembly.instantiateStreaming is not currently available in Safari
@@ -26,6 +32,7 @@
     </head>
     <body>
         <main id="wasm"></main>
+        <input type="text" id="DebugInput">
         <input type="file" id="fileInput">
     </body>
 </html>
