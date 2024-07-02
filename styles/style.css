@@ -28,10 +28,6 @@ button {
     color: black;
 }
 
-button:hover {
-    background-color: #0056b3;
-}
-
 #terminal {
     margin-top: 20px;
     padding: 10px;
