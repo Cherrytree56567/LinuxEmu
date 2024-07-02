@@ -98,7 +98,7 @@
 			this.env = {};
 			this.exit = (code) => {
 				if (code !== 0) {
-					console.warn("exit code:", code);
+					document.getElementById("debug-console").innerHTML += "<br>exit code:" + code;
 				}
 			};
 			this._exitPromise = new Promise((resolve) => {

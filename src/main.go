@@ -3,8 +3,9 @@ package main
 import (
 	"bytes"
 	"debug/elf"
-	"fmt"
+	"log"
 	"os"
+    "fmt"
 	"strconv"
 	"strings"
     "sync"
@@ -71,6 +72,17 @@ var registerMap = map[register]string{
 
 type registerFile [18]uint64
 
+// Custom writer to redirect log.Printf output
+type consoleWriter struct{}
+
+func (cw consoleWriter) Write(p []byte) (n int, err error) {
+    target := js.Global().Get("document").Call("getElementById", "debug-console")
+    currentHTML := target.Get("innerHTML").String()
+    newContent := currentHTML + string(p)
+    target.Set("innerHTML", newContent)
+    return len(p), nil
+}
+
 func (regfile *registerFile) get(r register) uint64 {
     return regfile[r]
 }
@@ -101,7 +113,7 @@ func hbdebug(msg string, bs []byte) {
         str = str + " %x"
         args = append(args, b)
     }
-    fmt.Printf(str+"\n", args...)
+    log.Printf(str+"<br>", args...)
 }
 
 var prefixBytes = []byte{0x48}
@@ -136,6 +148,7 @@ func (c *cpu) loop(entryReturnAddress uint64) {
                 widthPrefix = 64
             } else {
                 hbdebug("prog", c.mem[ip:ip+10])
+                log.Printf("Unknown prefix instruction")
                 panic("Unknown prefix instruction")
             }
 
@@ -172,6 +185,7 @@ func (c *cpu) loop(entryReturnAddress uint64) {
             continue
         } else {
             hbdebug("prog", c.mem[ip:ip+10])
+            log.Printf("Unknown instruction")
             panic("Unknown instruction")
         }
 
@@ -212,33 +226,36 @@ func (c *cpu) resolveDebuggerValue(dval string) (uint64, error) {
 }
 
 func repl(c *cpu) {
-    fmt.Println("go-amd64-emulator REPL")
-    help := `commands:
-    s/step:             continue to next instruction
-    r/registers [$reg]:     print all register values or just $reg
+    help := `<br>Debugging Console:<br>
+    s/step:             continue to next instruction<br>
+    r/registers [$reg]:     print all register values or just $reg<br>
     d/decimal:          toggle hex/decimal printing
-    m/memory $from $count:      print memory values starting at $from until $from+$count
-    h/help:             print this`
-    fmt.Println(help)
+    m/memory $from $count:      print memory values starting at $from until $from+$count<br>
+    h/help:             print this<br>`
+    log.Println(help)
 
     intFormat := "%d"
 
-    // Set up an event listener for input changes
     inputChan := make(chan string, 1)
+
+    input := ""
+
+    button := js.Global().Get("document").Call("getElementById", "Debug-btn")
     inputs := js.Global().Get("document").Call("getElementById", "DebugInput")
-    inputs.Call("addEventListener", "input", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
-        input := inputs.Get("value").String()
+    
+    button.Call("addEventListener", "click", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
+        input = inputs.Get("value").String()
+        inputs.Set("value", "") // Clear input field
         inputChan <- input // Send input value to channel
         return nil
     }))
 
     for {
-        fmt.Printf("> ")
 
         // Wait for input asynchronously
         input := <-inputChan
 
-        if input == "ccccc" {
+        if input == "" {
             continue
         } else {
             inputs.Set("value", "") // Clear input field
@@ -248,26 +265,26 @@ func repl(c *cpu) {
             case "h":
                 fallthrough
             case "help":
-                fmt.Println(help)
+                log.Println(help)
 
             case "m":
                 fallthrough
             case "memory":
                 msg := "Invalid arguments: m/memory $from $to; use hex (0x10), decimal (10), or register name (rsp)"
                 if len(parts) != 3 {
-                    fmt.Println(msg)
+                    log.Println(msg)
                     continue
                 }
 
                 from, err := c.resolveDebuggerValue(parts[1])
                 if err != nil {
-                    fmt.Println(msg)
+                    log.Println(msg)
                     continue
                 }
 
                 to, err := c.resolveDebuggerValue(parts[2])
                 if err != nil {
-                    fmt.Println(msg)
+                    log.Println(msg)
                     continue
                 }
 
@@ -278,10 +295,10 @@ func repl(c *cpu) {
             case "decimal":
                 if intFormat == "%d" {
                     intFormat = "0x%x"
-                    fmt.Println("Numbers displayed as hex")
+                    log.Println("Numbers displayed as hex")
                 } else {
                     intFormat = "%d"
-                    fmt.Println("Numbers displayed as decimal")
+                    log.Println("Numbers displayed as decimal")
                 }
 
             case "r":
@@ -299,7 +316,7 @@ func repl(c *cpu) {
                         continue
                     }
 
-                    fmt.Printf("%s:\t"+intFormat+"\n", name, c.regfile.get(reg))
+                    log.Printf("%s:\t"+intFormat+"<br>", name, c.regfile.get(reg))
                 }
 
             case "s":
@@ -331,7 +348,8 @@ func readELF(bin []byte, entrySymbol string) (*process, error) {
     }
 
     if entryPoint == 0 {
-        return nil, fmt.Errorf("Could not find entrypoint symbol: %s", entrySymbol)
+        log.Printf("Could not find entrypoint symbol: " + entrySymbol)
+        return nil, fmt.Errorf("Could not find entrypoint symbol: " + entrySymbol)
     }
 
     var startAddress uint64
@@ -343,6 +361,7 @@ func readELF(bin []byte, entrySymbol string) (*process, error) {
     }
 
     if startAddress == 0 {
+        log.Printf("Could not determine start address")
         return nil, fmt.Errorf("Could not determine start address")
     }
 
@@ -394,15 +413,19 @@ func GetInput() ([]byte) {
 
 func main() {
 
+    writer := consoleWriter{}
+    log.SetOutput(writer)
+    log.SetFlags(0)
+
     proc, err := readELF(GetInput(), "main")
     if err != nil {
+        log.Println(err)
         panic(err)
     }
 
-    fmt.Printf("Start: 0x%x\nEntry: 0x%x\n", proc.startAddress, proc.entryPoint)
+    log.Printf("Start: 0x%x<br>Entry: 0x%x<br>", proc.startAddress, proc.entryPoint)
 
     debug := js.Global().Call("DebuggingEnabled").Bool()
-
 
     // 10 MB
     cpu := newCPU(0x400000 * 10)
